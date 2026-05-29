@@ -14,8 +14,8 @@
     "express": "^4.21.0",
     "express-rate-limit": "^8.5.2",
     "helmet": "^8.2.0",
-    "node-cron": "^3.0.3",
-    "nodemailer": "^6.9.15",
-    "uuid": "^10.0.0"
+    "node-cron": "^4.2.1",
+    "nodemailer": "^8.0.10",
+    "uuid": "^11.1.1"
   }
 }
