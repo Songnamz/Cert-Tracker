@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="SSL Certificate Tracker & Expiry Dashboard — Monitor your domain certificates with visual countdowns and automated alerts.">
+  <title>Cert Tracker — SSL Expiry Dashboard</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔒</text></svg>">
+  <link rel="stylesheet" href="index.css">
+</head>
+<body>
+
+<div class="app" id="app">
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-brand">
+      <div class="header-logo">🔒</div>
+      <div>
+        <h1 class="header-title">Cert Tracker</h1>
+        <p class="header-subtitle">SSL Certificate Expiry Dashboard</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button class="btn" id="btn-refresh-all" title="Check all certificates now">
+        <span>⟳</span> Check All
+      </button>
+      <button class="btn btn-primary" id="btn-add-domain" title="Add a new domain to track">
+        <span>+</span> Add Domain
+      </button>
+      <button class="btn btn-icon" id="btn-settings" title="Settings">
+        ⚙
+      </button>
+    </div>
+  </header>
+
+  <!-- Stats Bar -->
+  <div class="stats-bar" id="stats-bar">
+    <div class="stat-card">
+      <div class="stat-icon total">🌐</div>
+      <div class="stat-info">
+        <div class="stat-value total-val" id="stat-total">—</div>
+        <div class="stat-label">Total Domains</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon healthy">✓</div>
+      <div class="stat-info">
+        <div class="stat-value healthy-val" id="stat-healthy">—</div>
+        <div class="stat-label">Healthy</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon warning">⚠</div>
+      <div class="stat-info">
+        <div class="stat-value warning-val" id="stat-warning">—</div>
+        <div class="stat-label">Warning</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon critical">🔴</div>
+      <div class="stat-info">
+        <div class="stat-value critical-val" id="stat-critical">—</div>
+        <div class="stat-label">Critical</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon expired">✕</div>
+      <div class="stat-info">
+        <div class="stat-value expired-val" id="stat-expired">—</div>
+        <div class="stat-label">Expired</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon error">⚡</div>
+      <div class="stat-info">
+        <div class="stat-value error-val" id="stat-error">—</div>
+        <div class="stat-label">Errors</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Last Check Bar -->
+  <div class="last-check-bar" id="last-check-bar">
+    <span class="check-dot"></span>
+    <span id="last-check-text">Checking certificates...</span>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <div class="toolbar-left">
+      <div class="search-box">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="search-input" placeholder="Search domains..." autocomplete="off">
+      </div>
+      <div class="filter-pills" id="filter-pills">
+        <button class="filter-pill active" data-filter="all">All</button>
+        <button class="filter-pill" data-filter="healthy">Healthy</button>
+        <button class="filter-pill" data-filter="warning">Warning</button>
+        <button class="filter-pill" data-filter="critical">Critical</button>
+        <button class="filter-pill" data-filter="expired">Expired</button>
+        <button class="filter-pill" data-filter="error">Error</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Domain Groups (rendered by JS) -->
+  <div id="domain-groups">
+    <!-- Grouped domain cards rendered here -->
+  </div>
+
+</div>
+
+<!-- Add Domain Modal -->
+<div class="modal-overlay" id="add-domain-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 class="modal-title">Add Domain</h3>
+      <button class="modal-close" id="add-domain-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <form id="add-domain-form">
+        <div class="form-group">
+          <label class="form-label" for="new-domain">Domain Name</label>
+          <input class="form-input" type="text" id="new-domain" placeholder="example.com" required autocomplete="off">
+          <p class="form-help">Enter a domain name without http:// or path</p>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="new-resolve-host">Origin / Internal Host <span style="color:var(--text-dim);font-weight:400;">(optional)</span></label>
+          <input class="form-input" type="text" id="new-resolve-host" placeholder="192.168.1.10 or server.internal" autocomplete="off">
+          <p class="form-help">Bypass public DNS and connect directly to this IP or hostname — use for domains proxied through Cloudflare or other CDNs to check the origin server's cert.</p>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="new-label">Label <span style="color:var(--text-dim);font-weight:400;">(optional)</span></label>
+          <input class="form-input" type="text" id="new-label" placeholder="e.g. Internal, Origin, HQ Server" autocomplete="off">
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%;">
+          <span>+</span> Add Domain
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Certificate Detail Modal -->
+<div class="modal-overlay detail-modal" id="detail-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 class="modal-title" id="detail-modal-title">Certificate Details</h3>
+      <button class="modal-close" id="detail-modal-close">✕</button>
+    </div>
+    <div class="modal-body" id="detail-modal-body">
+      <!-- Filled by JS -->
+    </div>
+  </div>
+</div>
+
+<!-- Settings Modal -->
+<div class="modal-overlay settings-modal" id="settings-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 class="modal-title">Settings</h3>
+      <button class="modal-close" id="settings-modal-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <form id="settings-form">
+        <!-- Alert Thresholds -->
+        <h4 style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:14px;">Alert Thresholds</h4>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label" for="threshold-critical">Critical (days)</label>
+            <input class="form-input" type="number" id="threshold-critical" min="1" max="365" value="7">
+            <p class="form-help">🔴 Red alert when ≤ this many days</p>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="threshold-warning">Warning (days)</label>
+            <input class="form-input" type="number" id="threshold-warning" min="2" max="365" value="30">
+            <p class="form-help">🟡 Yellow alert when ≤ this many days</p>
+          </div>
+        </div>
+
+        <div class="settings-divider"></div>
+
+        <!-- Email Alerts -->
+        <h4 style="font-size:0.85rem; color:var(--text-secondary); margin-bottom:14px;">Email Alerts</h4>
+        <div class="form-group">
+          <label class="form-toggle">
+            <input type="checkbox" id="email-enabled">
+            <span class="toggle-switch"></span>
+            <span class="toggle-label">Enable email alerts</span>
+          </label>
+        </div>
+
+        <div id="email-fields" style="display:none;">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="smtp-host">SMTP Host</label>
+              <input class="form-input" type="text" id="smtp-host" placeholder="smtp.gmail.com">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="smtp-port">SMTP Port</label>
+              <input class="form-input" type="number" id="smtp-port" value="587">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-toggle">
+              <input type="checkbox" id="smtp-secure">
+              <span class="toggle-switch"></span>
+              <span class="toggle-label">Use SSL/TLS</span>
+            </label>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="smtp-user">SMTP Username</label>
+              <input class="form-input" type="text" id="smtp-user" placeholder="user@gmail.com">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="smtp-pass">SMTP Password</label>
+              <input class="form-input" type="password" id="smtp-pass" placeholder="••••••••">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="email-from">From Address</label>
+              <input class="form-input" type="email" id="email-from" placeholder="alerts@example.com">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="email-to">To Address</label>
+              <input class="form-input" type="email" id="email-to" placeholder="admin@example.com">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-toggle">
+              <input type="checkbox" id="alert-on-expired" checked>
+              <span class="toggle-switch"></span>
+              <span class="toggle-label">Alert on expired certificates</span>
+            </label>
+          </div>
+          <div class="form-group">
+            <label class="form-toggle">
+              <input type="checkbox" id="alert-on-critical" checked>
+              <span class="toggle-switch"></span>
+              <span class="toggle-label">Alert on critical certificates</span>
+            </label>
+          </div>
+          <div class="form-group">
+            <label class="form-toggle">
+              <input type="checkbox" id="alert-on-warning">
+              <span class="toggle-switch"></span>
+              <span class="toggle-label">Alert on warning certificates</span>
+            </label>
+          </div>
+          <button type="button" class="btn btn-sm" id="btn-test-email" style="margin-bottom:14px;">
+            📧 Send Test Email
+          </button>
+        </div>
+
+        <div class="settings-divider"></div>
+
+        <button type="submit" class="btn btn-primary" style="width:100%;">
+          Save Settings
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toast-container"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

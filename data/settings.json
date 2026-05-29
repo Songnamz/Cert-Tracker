@@ -1,0 +1,22 @@
+{
+  "thresholds": {
+    "critical": 7,
+    "warning": 30
+  },
+  "checkIntervalHours": 6,
+  "email": {
+    "enabled": false,
+    "smtp": {
+      "host": "",
+      "port": 587,
+      "secure": false,
+      "user": "",
+      "pass": ""
+    },
+    "from": "",
+    "to": "",
+    "alertOnCritical": true,
+    "alertOnWarning": true,
+    "alertOnExpired": true
+  }
+}

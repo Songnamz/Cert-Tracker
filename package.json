@@ -1,0 +1,17 @@
+{
+  "name": "cert-tracker",
+  "version": "1.0.0",
+  "description": "SSL Certificate Tracker & Expiry Dashboard",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "npx -y nodemon server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "node-cron": "^3.0.3",
+    "nodemailer": "^6.9.15",
+    "uuid": "^10.0.0"
+  }
+}
