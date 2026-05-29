@@ -166,7 +166,15 @@ router.get('/logs', (req, res) => {
 // --- Settings ---
 
 router.get('/settings', (req, res) => {
-  res.json(readSettings());
+  const s = readSettings();
+  // Overlay env vars so the UI reflects the effective configuration
+  if (process.env.SMTP_HOST) s.email.smtp.host = process.env.SMTP_HOST;
+  if (process.env.SMTP_PORT) s.email.smtp.port = parseInt(process.env.SMTP_PORT);
+  if (process.env.SMTP_USER) s.email.smtp.user = process.env.SMTP_USER;
+  if (process.env.SMTP_FROM) s.email.from      = process.env.SMTP_FROM;
+  // Signal to the frontend that the password is managed by .env
+  s.email.smtp.passFromEnv = !!process.env.SMTP_PASS;
+  res.json(s);
 });
 
 router.put('/settings', (req, res) => {
@@ -177,6 +185,18 @@ router.put('/settings', (req, res) => {
   if (updated.thresholds) {
     updated.thresholds.critical = Math.max(1, parseInt(updated.thresholds.critical) || 7);
     updated.thresholds.warning = Math.max(updated.thresholds.critical + 1, parseInt(updated.thresholds.warning) || 30);
+  }
+
+  // Don't overwrite env-managed password with blank
+  if (!updated.email?.smtp?.pass && process.env.SMTP_PASS) {
+    if (updated.email && updated.email.smtp) updated.email.smtp.pass = '';
+  }
+
+  // Sanitise allowedEmails
+  if (req.body.allowedEmails !== undefined) {
+    updated.allowedEmails = (req.body.allowedEmails || [])
+      .map(e => e.trim().toLowerCase())
+      .filter(e => e.includes('@'));
   }
 
   writeSettings(updated);

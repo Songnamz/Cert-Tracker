@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cert Tracker — Sign In</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔒</text></svg>">
+  <link rel="stylesheet" href="login.css">
+</head>
+<body>
+  <div class="login-bg"></div>
+
+  <div class="login-wrap">
+    <div class="login-card">
+
+      <!-- Logo -->
+      <div class="login-logo">🔒</div>
+      <h1 class="login-title">Cert Tracker</h1>
+      <p class="login-subtitle">SSL Certificate Expiry Dashboard</p>
+
+      <!-- Step 1: Email -->
+      <div class="login-step" id="step-email">
+        <p class="step-label">Enter your email to receive a login code</p>
+        <form id="form-email">
+          <div class="field-group">
+            <label class="field-label" for="input-email">Email address</label>
+            <input class="field-input" type="email" id="input-email"
+              placeholder="you@example.com" autocomplete="email" required>
+          </div>
+          <button class="login-btn" type="submit" id="btn-send">
+            <span id="btn-send-text">Send Code</span>
+            <span class="btn-spinner" id="btn-send-spinner"></span>
+          </button>
+        </form>
+      </div>
+
+      <!-- Step 2: OTP -->
+      <div class="login-step hidden" id="step-otp">
+        <p class="step-label">Enter the 6-digit code sent to</p>
+        <p class="sent-to" id="sent-to-email"></p>
+        <form id="form-otp">
+          <div class="otp-boxes" id="otp-boxes">
+            <input class="otp-input" type="text" inputmode="numeric" maxlength="1" autocomplete="off">
+            <input class="otp-input" type="text" inputmode="numeric" maxlength="1" autocomplete="off">
+            <input class="otp-input" type="text" inputmode="numeric" maxlength="1" autocomplete="off">
+            <input class="otp-input" type="text" inputmode="numeric" maxlength="1" autocomplete="off">
+            <input class="otp-input" type="text" inputmode="numeric" maxlength="1" autocomplete="off">
+            <input class="otp-input" type="text" inputmode="numeric" maxlength="1" autocomplete="off">
+          </div>
+          <button class="login-btn" type="submit" id="btn-verify">
+            <span id="btn-verify-text">Verify & Sign In</span>
+            <span class="btn-spinner" id="btn-verify-spinner"></span>
+          </button>
+        </form>
+        <div class="otp-footer">
+          <button class="link-btn" id="btn-resend">Resend code</button>
+          <span class="dot-sep">·</span>
+          <button class="link-btn" id="btn-back">Use different email</button>
+        </div>
+        <p class="otp-expiry">Code expires in <span id="otp-timer">5:00</span></p>
+      </div>
+
+      <!-- Error / success message -->
+      <div class="login-msg hidden" id="login-msg"></div>
+
+    </div>
+
+    <p class="login-footer">&copy; <span id="login-year"></span> Songnam Saraphai</p>
+  </div>
+
+  <script src="login.js"></script>
+</body>
+</html>

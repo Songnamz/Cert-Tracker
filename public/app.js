@@ -7,10 +7,25 @@ let searchQuery = '';
 let settings = {};
 let refreshInterval = null;
 let collapsedGroups = {}; // Track which groups are collapsed
+let activeGroup = 'all';  // Track which sidebar menu item is selected
 
 // ===== INIT =====
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  document.getElementById('footer-year').textContent = new Date().getFullYear();
+
+  // Verify session before rendering the app
+  try {
+    const res = await fetch('/api/auth/check');
+    if (res.status === 401) { window.location.href = '/login'; return; }
+    const data = await res.json();
+    const emailEl = document.getElementById('user-email');
+    if (emailEl) emailEl.textContent = data.email || '';
+  } catch {
+    window.location.href = '/login';
+    return;
+  }
+
   loadSettings();
   loadDomains();
   setupEventListeners();
@@ -27,6 +42,7 @@ async function loadDomains() {
     domainData = data.domains || [];
     updateStats(domainData);
     updateLastCheck(data.lastCheckTime, data.checking);
+    renderSidebar(groupDomains(domainData));
     renderDomainGroups(domainData);
     checkForAlerts(domainData);
   } catch (err) {
@@ -169,15 +185,67 @@ function getGroupStatusSummary(domains) {
   return counts;
 }
 
+function getWorstStatusFromSummary(summary) {
+  if (summary.expired > 0) return 'expired';
+  if (summary.critical > 0) return 'critical';
+  if (summary.warning > 0) return 'warning';
+  if (summary.error > 0) return 'error';
+  if (summary.healthy > 0) return 'healthy';
+  return 'unknown';
+}
+
+// ===== SIDEBAR =====
+
+function renderSidebar(groups) {
+  const sidebar = document.getElementById('sidebar');
+
+  const allWorst = getWorstStatusFromSummary(getGroupStatusSummary(domainData));
+
+  let html = `<div class="sidebar-title">Groups</div>`;
+  html += `
+    <div class="sidebar-item ${activeGroup === 'all' ? 'active' : ''}" onclick="selectGroup('all')">
+      <span class="sidebar-item-dot" style="background:${getStrokeColor(allWorst)};"></span>
+      <span class="sidebar-item-name">All Domains</span>
+      <span class="sidebar-item-count">${domainData.length}</span>
+    </div>
+    <div class="sidebar-divider"></div>
+  `;
+
+  for (const group of groups) {
+    const worst = getWorstStatusFromSummary(getGroupStatusSummary(group.domains));
+    const isActive = activeGroup === group.baseDomain;
+    html += `
+      <div class="sidebar-item ${isActive ? 'active' : ''}" onclick="selectGroup('${group.baseDomain}')">
+        <span class="sidebar-item-dot" style="background:${getStrokeColor(worst)};"></span>
+        <span class="sidebar-item-name" title="${escapeHtml(group.baseDomain)}">${escapeHtml(group.baseDomain)}</span>
+        <span class="sidebar-item-count">${group.domains.length}</span>
+      </div>
+    `;
+  }
+
+  sidebar.innerHTML = html;
+}
+
+function selectGroup(groupName) {
+  activeGroup = groupName;
+  renderSidebar(groupDomains(domainData));
+  renderDomainGroups(domainData);
+}
+
 // ===== DOMAIN GRID (GROUPED) =====
 
 function renderDomainGroups(domains) {
   const container = document.getElementById('domain-groups');
   let filtered = domains;
 
-  // Apply filter
+  // Filter by active sidebar group
+  if (activeGroup !== 'all') {
+    filtered = filtered.filter(d => getBaseDomain(d.domain) === activeGroup);
+  }
+
+  // Apply status filter
   if (activeFilter !== 'all') {
-    filtered = domains.filter(d => {
+    filtered = filtered.filter(d => {
       const status = d.result ? d.result.status : 'unknown';
       return status === activeFilter;
     });
@@ -195,20 +263,27 @@ function renderDomainGroups(domains) {
         <div class="empty-icon">🔍</div>
         <h3>No domains found</h3>
         <p>${searchQuery ? 'Try adjusting your search.' : activeFilter !== 'all' ? 'No domains match this filter.' : 'Add your first domain to get started.'}</p>
-        ${!searchQuery && activeFilter === 'all' ? '<button class="btn btn-primary" onclick="openModal(\'add-domain-modal\')"><span>+</span> Add Domain</button>' : ''}
+        ${!searchQuery && activeFilter === 'all' && activeGroup === 'all' ? '<button class="btn btn-primary" onclick="openModal(\'add-domain-modal\')"><span>+</span> Add Domain</button>' : ''}
       </div>`;
     return;
   }
 
+  // Single group selected — flat card grid, no collapsible headers
+  if (activeGroup !== 'all') {
+    let cardIndex = 0;
+    const cardsHtml = filtered.map(d => renderDomainCard(d, cardIndex++)).join('');
+    container.innerHTML = `<div class="domain-grid">${cardsHtml}</div>`;
+    return;
+  }
+
+  // All groups view — grouped with collapsible headers
   const groups = groupDomains(filtered);
   let cardIndex = 0;
 
   container.innerHTML = groups.map(group => {
     const statusSummary = getGroupStatusSummary(group.domains);
     const isCollapsed = collapsedGroups[group.baseDomain] === true;
-    const groupId = group.baseDomain.replace(/\./g, '-');
 
-    // Build status dots
     const statusDots = [];
     if (statusSummary.healthy > 0) statusDots.push(`<span class="group-status-dot healthy">${statusSummary.healthy} ✓</span>`);
     if (statusSummary.warning > 0) statusDots.push(`<span class="group-status-dot warning">${statusSummary.warning} ⚠</span>`);
@@ -216,7 +291,6 @@ function renderDomainGroups(domains) {
     if (statusSummary.expired > 0) statusDots.push(`<span class="group-status-dot expired">${statusSummary.expired} ✕</span>`);
     if (statusSummary.error > 0) statusDots.push(`<span class="group-status-dot error">${statusSummary.error} ⚡</span>`);
 
-    // Determine group icon based on worst status
     let groupEmoji = '🟢';
     if (statusSummary.error > 0) groupEmoji = '⚡';
     if (statusSummary.warning > 0) groupEmoji = '🟡';
@@ -228,11 +302,7 @@ function renderDomainGroups(domains) {
       ? `${group.domains.length} domain${group.domains.length > 1 ? 's' : ''} · ${subdomainCount} subdomain${subdomainCount !== 1 ? 's' : ''}`
       : `${group.domains.length} domain${group.domains.length > 1 ? 's' : ''}`;
 
-    const cardsHtml = group.domains.map(d => {
-      const html = renderDomainCard(d, cardIndex);
-      cardIndex++;
-      return html;
-    }).join('');
+    const cardsHtml = group.domains.map(d => renderDomainCard(d, cardIndex++)).join('');
 
     return `
       <div class="domain-group ${isCollapsed ? 'collapsed' : ''}" data-group="${group.baseDomain}">
@@ -248,9 +318,7 @@ function renderDomainGroups(domains) {
           </div>
         </div>
         <div class="group-body">
-          <div class="domain-grid">
-            ${cardsHtml}
-          </div>
+          <div class="domain-grid">${cardsHtml}</div>
         </div>
       </div>
     `;
@@ -583,13 +651,44 @@ function populateSettingsForm(s) {
   document.getElementById('smtp-port').value = s.email?.smtp?.port || 587;
   document.getElementById('smtp-secure').checked = s.email?.smtp?.secure || false;
   document.getElementById('smtp-user').value = s.email?.smtp?.user || '';
-  document.getElementById('smtp-pass').value = s.email?.smtp?.pass || '';
+  document.getElementById('smtp-pass').value = '';
+  const passHint = document.getElementById('smtp-pass-env-hint');
+  if (s.email?.smtp?.passFromEnv) {
+    passHint.style.display = '';
+    document.getElementById('smtp-pass').placeholder = 'Leave blank to keep .env password';
+  } else {
+    passHint.style.display = 'none';
+    document.getElementById('smtp-pass').placeholder = '••••••••';
+  }
   document.getElementById('email-from').value = s.email?.from || '';
   document.getElementById('email-to').value = s.email?.to || '';
   document.getElementById('alert-on-expired').checked = s.email?.alertOnExpired !== false;
   document.getElementById('alert-on-critical').checked = s.email?.alertOnCritical !== false;
   document.getElementById('alert-on-warning').checked = s.email?.alertOnWarning || false;
+  renderAllowedEmails(s.allowedEmails || []);
   toggleEmailFields();
+}
+
+let allowedEmails = [];
+
+function renderAllowedEmails(list) {
+  allowedEmails = [...list];
+  const container = document.getElementById('allowed-emails-list');
+  if (allowedEmails.length === 0) {
+    container.innerHTML = '<p style="font-size:0.75rem;color:var(--text-dim);margin-bottom:8px;">No emails added yet.</p>';
+    return;
+  }
+  container.innerHTML = allowedEmails.map((em, i) => `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;background:var(--bg-glass);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);margin-bottom:6px;">
+      <span style="font-size:0.82rem;color:var(--text-secondary);">${escapeHtml(em)}</span>
+      <button type="button" onclick="removeAllowedEmail(${i})" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:14px;padding:2px 6px;" title="Remove">✕</button>
+    </div>
+  `).join('');
+}
+
+function removeAllowedEmail(index) {
+  allowedEmails.splice(index, 1);
+  renderAllowedEmails(allowedEmails);
 }
 
 function toggleEmailFields() {
@@ -601,6 +700,7 @@ async function saveSettings(e) {
   e.preventDefault();
 
   const updated = {
+    allowedEmails,
     thresholds: {
       critical: parseInt(document.getElementById('threshold-critical').value) || 7,
       warning: parseInt(document.getElementById('threshold-warning').value) || 30,
@@ -752,6 +852,28 @@ function setupEventListeners() {
 
   // Detail modal
   document.getElementById('detail-modal-close').addEventListener('click', () => closeModal('detail-modal'));
+
+  // Logout
+  document.getElementById('btn-logout').addEventListener('click', async () => {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    window.location.href = '/login';
+  });
+
+  // Add allowed email
+  document.getElementById('btn-add-allowed-email').addEventListener('click', () => {
+    const input = document.getElementById('new-allowed-email');
+    const val = input.value.trim().toLowerCase();
+    if (!val || !val.includes('@')) return;
+    if (!allowedEmails.includes(val)) {
+      allowedEmails.push(val);
+      renderAllowedEmails(allowedEmails);
+    }
+    input.value = '';
+  });
+
+  document.getElementById('new-allowed-email').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('btn-add-allowed-email').click(); }
+  });
 
   // Close modals on overlay click
   document.querySelectorAll('.modal-overlay').forEach(overlay => {

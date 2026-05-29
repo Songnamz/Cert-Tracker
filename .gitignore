@@ -1,3 +1,19 @@
+# Dependencies
 node_modules/
+
+# Claude Code
 .claude/
-data/results.json
+
+# Environment variables — contains credentials, never commit
+.env
+
+# Runtime data — contains credentials and sensitive info, never commit
+data/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
