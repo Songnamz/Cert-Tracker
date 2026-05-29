@@ -8,7 +8,7 @@ const rateLimit = require('express-rate-limit');
 const cookieParser = require('cookie-parser');
 const { router: apiRouter, readDomains, readSettings } = require('./src/routes/api');
 const authRouter = require('./src/routes/auth');
-const { validateSession } = require('./src/services/otpStore');
+const { validateSession, isIPBlocked } = require('./src/services/otpStore');
 const scheduler = require('./src/services/scheduler');
 
 const app = express();
@@ -46,9 +46,22 @@ const authLimiter = rateLimit({
 });
 
 // ── Middleware ────────────────────────────────────────────────────────────────
+app.set('trust proxy', 1); // trust first proxy (nginx)
 app.use(cors());
 app.use(express.json());
 app.use(cookieParser());
+
+// ── IP block gate ─────────────────────────────────────────────────────────────
+app.use((req, res, next) => {
+  const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.ip;
+  if (isIPBlocked(ip)) {
+    if (req.path.startsWith('/api/')) {
+      return res.status(403).json({ error: 'Access denied. Too many failed attempts.' });
+    }
+    return res.status(403).send('Access denied. Too many failed login attempts. Try again in 24 hours.');
+  }
+  next();
+});
 
 // ── Public routes (no auth required) ─────────────────────────────────────────
 app.use('/api/auth', authLimiter, authRouter);

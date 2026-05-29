@@ -5,8 +5,14 @@ const router = express.Router();
 const emailAlert = require('../services/emailAlert');
 const {
   generateOTP, storeOTP, verifyOTP,
-  createSession, validateSession, deleteSession, isRateLimited,
+  createSession, validateSession, deleteSession,
+  isRateLimited, isIPBlocked, recordFailedVerify,
 } = require('../services/otpStore');
+
+function getClientIP(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  return (forwarded ? forwarded.split(',')[0] : req.ip || req.socket.remoteAddress || '').trim();
+}
 
 const COOKIE_NAME  = 'ct_session';
 const SETTINGS_PATH = path.join(__dirname, '..', '..', 'data', 'settings.json');
@@ -34,6 +40,11 @@ function isEmailAllowed(email, settings) {
 
 // POST /api/auth/request-otp
 router.post('/request-otp', async (req, res) => {
+  const ip = getClientIP(req);
+  if (isIPBlocked(ip)) {
+    return res.status(403).json({ error: 'Access denied. Too many failed attempts.' });
+  }
+
   const { email } = req.body;
   if (!email || typeof email !== 'string' || !email.includes('@')) {
     return res.status(400).json({ error: 'Valid email is required' });
@@ -72,6 +83,11 @@ router.post('/request-otp', async (req, res) => {
 
 // POST /api/auth/verify-otp
 router.post('/verify-otp', (req, res) => {
+  const ip = getClientIP(req);
+  if (isIPBlocked(ip)) {
+    return res.status(403).json({ error: 'Access denied. Too many failed attempts.' });
+  }
+
   const { email, code } = req.body;
   if (!email || !code) {
     return res.status(400).json({ error: 'Email and code are required' });
@@ -79,11 +95,15 @@ router.post('/verify-otp', (req, res) => {
 
   const result = verifyOTP(email.trim(), code.trim());
   if (!result.valid) {
+    recordFailedVerify(ip);
+    if (isIPBlocked(ip)) {
+      return res.status(403).json({ error: 'Access denied. Too many failed attempts. Try again in 24 hours.' });
+    }
     const messages = {
       expired:           'Code has expired. Please request a new one.',
       too_many_attempts: 'Too many incorrect attempts. Please request a new code.',
       invalid:           'Incorrect code. Please try again.',
-      no_code:           'No code found. Please request a new one.',
+      no_code:           'Incorrect code. Please try again.',
     };
     return res.status(401).json({ error: messages[result.reason] || 'Invalid code' });
   }
