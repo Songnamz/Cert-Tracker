@@ -1,21 +1,15 @@
 const express = require('express');
-const path = require('path');
-const fs = require('fs');
 const router = express.Router();
-const emailAlert = require('../services/emailAlert');
+const { OAuth2Client } = require('google-auth-library');
 const {
-  generateOTP, storeOTP, verifyOTP,
-  createSession, validateSession, deleteSession,
-  isRateLimited, isIPBlocked, recordFailedVerify,
+  createSession, validateSession, deleteSession, isIPBlocked, recordFailedVerify
 } = require('../services/otpStore');
-
-function getClientIP(req) {
-  const forwarded = req.headers['x-forwarded-for'];
-  return (forwarded ? forwarded.split(',')[0] : req.ip || req.socket.remoteAddress || '').trim();
-}
-
-const COOKIE_NAME  = 'ct_session';
+const fs = require('fs');
+const path = require('path');
 const SETTINGS_PATH = path.join(__dirname, '..', '..', 'data', 'settings.json');
+
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const COOKIE_NAME  = 'ct_session';
 
 const cookieOpts = {
   httpOnly: true,
@@ -24,93 +18,71 @@ const cookieOpts = {
   path: '/',
 };
 
-function readSettings() {
-  try { return JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8')); }
-  catch (_) { return {}; }
+function getClientIP(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  return (forwarded ? forwarded.split(',')[0] : req.ip || req.socket.remoteAddress || '').trim();
 }
 
-function isEmailAllowed(email, settings) {
-  const allowed = (settings.allowedEmails || []).map(e => e.toLowerCase());
-  if (allowed.length === 0) {
-    const alertTo = settings.email && settings.email.to;
-    return !!(alertTo && email === alertTo.toLowerCase());
-  }
-  return allowed.includes(email);
-}
-
-// POST /api/auth/request-otp
-router.post('/request-otp', async (req, res) => {
-  const ip = getClientIP(req);
-  if (isIPBlocked(ip)) {
-    return res.status(403).json({ error: 'Access denied. Too many failed attempts.' });
-  }
-
-  const { email } = req.body;
-  if (!email || typeof email !== 'string' || !email.includes('@')) {
-    return res.status(400).json({ error: 'Valid email is required' });
-  }
-
-  const clean = email.trim().toLowerCase();
-
-  if (isRateLimited(clean)) {
-    return res.status(429).json({ error: 'Too many requests. Please wait 15 minutes.' });
-  }
-
-  const settings = readSettings();
-
-  // SMTP must be configured before anything else (env vars take priority over settings)
-  const smtpHost = process.env.SMTP_HOST || (settings.email && settings.email.smtp && settings.email.smtp.host);
-  if (!settings.email || !settings.email.enabled || !smtpHost) {
-    return res.status(503).json({ error: 'Email is not configured on this server. Contact your administrator.' });
-  }
-
-  // Silent success for unrecognised emails — prevents enumeration
-  if (!isEmailAllowed(clean, settings)) {
-    return res.json({ sent: true });
-  }
-
-  const code = generateOTP();
-  storeOTP(clean, code);
-
-  try {
-    await emailAlert.sendOTP(settings.email, clean, code);
-    res.json({ sent: true });
-  } catch (err) {
-    console.error('OTP send error:', err.message);
-    res.status(500).json({ error: 'Failed to send email. Check SMTP settings.' });
-  }
+// GET /api/auth/client-id
+router.get('/client-id', (req, res) => {
+  res.json({ clientId: process.env.GOOGLE_CLIENT_ID || '' });
 });
 
-// POST /api/auth/verify-otp
-router.post('/verify-otp', (req, res) => {
+// POST /api/auth/google
+router.post('/google', async (req, res) => {
   const ip = getClientIP(req);
   if (isIPBlocked(ip)) {
     return res.status(403).json({ error: 'Access denied. Too many failed attempts.' });
   }
 
-  const { email, code } = req.body;
-  if (!email || !code) {
-    return res.status(400).json({ error: 'Email and code are required' });
+  const { credential } = req.body;
+  if (!credential) {
+    return res.status(400).json({ error: 'Google credential is required' });
   }
 
-  const result = verifyOTP(email.trim(), code.trim());
-  if (!result.valid) {
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    
+    const payload = ticket.getPayload();
+    const email = payload.email;
+
+    if (!email) {
+      return res.status(400).json({ error: 'No email found in Google token' });
+    }
+
+    const token = createSession(email);
+    res.cookie(COOKIE_NAME, token, cookieOpts);
+
+    // Track user
+    try {
+      if (fs.existsSync(SETTINGS_PATH)) {
+        const settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8'));
+        if (!settings.users) settings.users = [];
+        const user = settings.users.find(u => u.email === email);
+        if (!user) {
+          const defaultRole = email === 'jeng.ss.it@gmail.com' ? 'admin' : 'user';
+          settings.users.push({ email, role: defaultRole, lastLogin: new Date().toISOString() });
+        } else {
+          user.lastLogin = new Date().toISOString();
+        }
+        fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2));
+      }
+    } catch (err) {
+      console.error('Failed to track user:', err);
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Google token verification failed:', err.message);
     recordFailedVerify(ip);
     if (isIPBlocked(ip)) {
       return res.status(403).json({ error: 'Access denied. Too many failed attempts. Try again in 24 hours.' });
     }
-    const messages = {
-      expired:           'Code has expired. Please request a new one.',
-      too_many_attempts: 'Too many incorrect attempts. Please request a new code.',
-      invalid:           'Incorrect code. Please try again.',
-      no_code:           'Incorrect code. Please try again.',
-    };
-    return res.status(401).json({ error: messages[result.reason] || 'Invalid code' });
+    res.status(401).json({ error: 'Invalid Google token' });
   }
-
-  const token = createSession(email.trim());
-  res.cookie(COOKIE_NAME, token, cookieOpts);
-  res.json({ success: true });
 });
 
 // POST /api/auth/logout
@@ -126,7 +98,20 @@ router.get('/check', (req, res) => {
   const token = req.cookies && req.cookies[COOKIE_NAME];
   const session = validateSession(token);
   if (!session) return res.status(401).json({ authenticated: false });
-  res.json({ authenticated: true, email: session.email });
+
+  let isAdmin = session.email === 'jeng.ss.it@gmail.com';
+  if (!isAdmin) {
+    try {
+      if (fs.existsSync(SETTINGS_PATH)) {
+        const settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8'));
+        const users = settings.users || [];
+        const u = users.find(user => user.email === session.email);
+        if (u && u.role === 'admin') isAdmin = true;
+      }
+    } catch (err) {}
+  }
+
+  res.json({ authenticated: true, email: session.email, isAdmin });
 });
 
 module.exports = router;

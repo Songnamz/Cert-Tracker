@@ -9,16 +9,18 @@ A self-hosted SSL certificate expiry dashboard. Monitor all your domains and int
 
 ## Features
 
+- **Multi-Tenant Architecture** — Each user has their own private dashboard, domain list, and personal settings.
+- **Role-Based Access Control** — Admins can manage users, promote/demote roles, and remove accounts.
 - **Certificate monitoring** — checks SSL/TLS certs and shows days remaining with a visual countdown ring
 - **Sidebar navigation** — domains grouped by base domain, navigate between groups without scrolling
 - **Status indicators** — Healthy / Warning / Critical / Expired / Error with color-coded badges
 - **Origin/internal host support** — bypass public DNS to check certs on servers behind a CDN, load balancer, or reverse proxy (e.g. check the backend server cert separately from nginx)
 - **Email OTP login** — enter your email, receive a 6-digit code, no passwords required
-- **Allowed emails list** — only pre-approved addresses can request a login code
+- **Per-User Settings** — Users can optionally enter their own SMTP credentials to receive their own alerts, or use global credentials.
 - **Email alerts** — automated notifications when certs are expiring (configurable thresholds)
-- **Scheduled checks** — automatic re-checks on a configurable interval (default every 6 hours)
-- **Responsive UI** — works on desktop, tablet, and mobile
-- **Security hardened** — HTTP security headers (helmet), rate limiting, credentials in `.env`, session cookies
+- **Scheduled checks** — automatic background checks for all active users (default every 6 hours)
+- **Responsive UI** — beautifully designed and works on desktop, tablet, and mobile
+- **Security hardened** — HTTP security headers (helmet), rate limiting, private configuration keys, session cookies
 
 ---
 
@@ -47,29 +49,23 @@ npm install
 
 ### 1. Create the `.env` file
 
-Copy the example below and fill in your SMTP credentials. This file is **never committed to git**.
+You can optionally configure global SMTP credentials. If configured, the app will use these credentials to send OTP login codes and system alerts. Users can also configure their own private SMTP credentials in their personal dashboard settings.
 
 ```env
 # Server
 PORT=3000
 
-# SMTP credentials — keep this file private
-SMTP_HOST=smtp.office365.com       # or smtp.gmail.com for Gmail
+# Global SMTP credentials (Optional)
+SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
 SMTP_USER=you@yourdomain.com
 SMTP_PASS=your-app-password
 SMTP_FROM=you@yourdomain.com
 ```
 
-**Microsoft 365 — enable SMTP AUTH first:**
-1. Microsoft 365 Admin Center → Users → select the user → Mail → Manage email apps
-2. Enable **Authenticated SMTP** → Save
-3. If MFA is enabled: [create an App Password](https://mysignins.microsoft.com/security-info)
-
-**Gmail:**
-1. Google Account → Security → 2-Step Verification (must be on)
-2. App passwords → create one for "Mail"
-3. Use the 16-character code as `SMTP_PASS`
+**Note on Google/Microsoft 365 Accounts:**
+- For Gmail, you must enable 2-Step Verification and generate an **App Password**. You cannot use your regular account password.
+- For Microsoft 365, you must enable **Authenticated SMTP** and create an App Password if MFA is on.
 
 ### 2. Create the `data` directory
 
@@ -77,23 +73,14 @@ SMTP_FROM=you@yourdomain.com
 mkdir data
 ```
 
-The app creates `data/settings.json`, `data/domains.json`, and `data/results.json` automatically on first run. The `data/` folder is gitignored.
+The app creates `data/settings.json`, `data/domains.json`, and `data/results.json` automatically on first run. The `data/` folder is gitignored to protect user data.
 
-### 3. Add your email to the allowed login list
+### 3. Log In
 
-On first run the app creates `data/settings.json`. Edit it to add your email:
-
-```json
-{
-  "email": {
-    "enabled": true,
-    "to": "alerts@yourdomain.com"
-  },
-  "allowedEmails": ["you@yourdomain.com"]
-}
-```
-
-Or configure it through the Settings page after first login (if you add your email to `allowedEmails` before starting, you can log straight in).
+Start the application and log in. 
+- By default, `jeng.ss.it@gmail.com` is automatically assigned the root **Admin** role upon login.
+- Anyone else who logs in gets a standard **User** role.
+- Admins can manage other users by clicking the "Manage Users" button in the header.
 
 ---
 

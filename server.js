@@ -16,15 +16,17 @@ const PORT = process.env.PORT || 3000;
 
 // ── Security headers ─────────────────────────────────────────────────────────
 app.use(helmet({
+  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
   contentSecurityPolicy: {
     directives: {
       defaultSrc:    ["'self'"],
-      scriptSrc:     ["'self'", "'unsafe-inline'", 'https://static.cloudflareinsights.com'],
+      scriptSrc:     ["'self'", "'unsafe-inline'", 'https://static.cloudflareinsights.com', 'https://accounts.google.com'],
       scriptSrcAttr: ["'unsafe-inline'"],  // allows onclick= handlers in rendered HTML
-      styleSrc:      ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      styleSrc:      ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com', 'https://accounts.google.com'],
       fontSrc:       ["'self'", 'https://fonts.gstatic.com'],
       imgSrc:        ["'self'", 'data:'],
-      connectSrc:    ["'self'", 'https://cloudflareinsights.com'],
+      connectSrc:    ["'self'", 'https://cloudflareinsights.com', 'https://accounts.google.com'],
+      frameSrc:      ["'self'", 'https://accounts.google.com'],
     },
   },
 }));
@@ -101,8 +103,8 @@ app.listen(PORT, () => {
   scheduler.startCron(readDomains, readSettings);
   const domains = readDomains();
   const settings = readSettings();
-  if (domains.length > 0) {
-    console.log(`  📡 Running initial check on ${domains.length} domains...\n`);
+  if (Object.keys(domains).length > 0) {
+    console.log(`  📡 Running initial check for all users...\n`);
     scheduler.runCheck(domains, settings);
   }
 });

@@ -2,77 +2,7 @@
 
 document.getElementById('login-year').textContent = new Date().getFullYear();
 
-const stepEmail  = document.getElementById('step-email');
-const stepOTP    = document.getElementById('step-otp');
-const formEmail  = document.getElementById('form-email');
-const formOTP    = document.getElementById('form-otp');
-const inputEmail = document.getElementById('input-email');
-const sentTo     = document.getElementById('sent-to-email');
-const msgEl      = document.getElementById('login-msg');
-const otpInputs  = Array.from(document.querySelectorAll('.otp-input'));
-const timerEl    = document.getElementById('otp-timer');
-
-let currentEmail = '';
-let timerInterval = null;
-
-// ── OTP box behaviour ────────────────────────────────────────────────────────
-
-otpInputs.forEach((box, i) => {
-  box.addEventListener('input', e => {
-    const val = e.target.value.replace(/\D/g, '');
-    box.value = val ? val[val.length - 1] : '';
-    box.classList.toggle('filled', !!box.value);
-    if (box.value && i < otpInputs.length - 1) otpInputs[i + 1].focus();
-  });
-
-  box.addEventListener('keydown', e => {
-    if (e.key === 'Backspace' && !box.value && i > 0) {
-      otpInputs[i - 1].value = '';
-      otpInputs[i - 1].classList.remove('filled');
-      otpInputs[i - 1].focus();
-    }
-    // Allow paste on any box
-    if ((e.ctrlKey || e.metaKey) && e.key === 'v') return;
-  });
-
-  box.addEventListener('paste', e => {
-    e.preventDefault();
-    const pasted = (e.clipboardData || window.clipboardData)
-      .getData('text').replace(/\D/g, '').slice(0, 6);
-    pasted.split('').forEach((ch, idx) => {
-      if (otpInputs[idx]) {
-        otpInputs[idx].value = ch;
-        otpInputs[idx].classList.add('filled');
-      }
-    });
-    const next = otpInputs[Math.min(pasted.length, otpInputs.length - 1)];
-    if (next) next.focus();
-  });
-});
-
-// ── Timer ────────────────────────────────────────────────────────────────────
-
-function startTimer(seconds) {
-  clearInterval(timerInterval);
-  let remaining = seconds;
-
-  function tick() {
-    const m = Math.floor(remaining / 60);
-    const s = remaining % 60;
-    timerEl.textContent = `${m}:${s.toString().padStart(2, '0')}`;
-    timerEl.classList.toggle('urgent', remaining <= 60);
-    if (remaining <= 0) {
-      clearInterval(timerInterval);
-      timerEl.textContent = 'Expired';
-    }
-    remaining--;
-  }
-
-  tick();
-  timerInterval = setInterval(tick, 1000);
-}
-
-// ── Messages ─────────────────────────────────────────────────────────────────
+const msgEl = document.getElementById('login-msg');
 
 function showMsg(text, type = 'error') {
   msgEl.textContent = text;
@@ -83,129 +13,64 @@ function clearMsg() {
   msgEl.className = 'login-msg hidden';
 }
 
-// ── Loading state ─────────────────────────────────────────────────────────────
-
-function setLoading(btnId, spinnerId, loading) {
-  const btn = document.getElementById(btnId);
-  const sp  = document.getElementById(spinnerId);
-  btn.disabled = loading;
-  sp.classList.toggle('active', loading);
-}
-
-// ── Step 1: Request OTP ───────────────────────────────────────────────────────
-
-formEmail.addEventListener('submit', async e => {
-  e.preventDefault();
+// Global callback function for Google Sign-In
+window.handleGoogleSignIn = async function(response) {
   clearMsg();
-
-  const email = inputEmail.value.trim();
-  if (!email) return;
-
-  setLoading('btn-send', 'btn-send-spinner', true);
-
-  try {
-    const res = await fetch('/api/auth/request-otp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email }),
-    });
-
-    const data = await res.json();
-
-    if (!res.ok) {
-      showMsg(data.error || 'Failed to send code.');
-      return;
-    }
-
-    // Move to OTP step
-    currentEmail = email;
-    sentTo.textContent = email;
-    stepEmail.classList.add('hidden');
-    stepOTP.classList.remove('hidden');
-    clearMsg();
-    otpInputs.forEach(b => { b.value = ''; b.classList.remove('filled'); });
-    otpInputs[0].focus();
-    startTimer(300);
-
-  } catch {
-    showMsg('Network error. Please try again.');
-  } finally {
-    setLoading('btn-send', 'btn-send-spinner', false);
-  }
-});
-
-// ── Step 2: Verify OTP ────────────────────────────────────────────────────────
-
-formOTP.addEventListener('submit', async e => {
-  e.preventDefault();
-  clearMsg();
-
-  const code = otpInputs.map(b => b.value).join('');
-  if (code.length !== 6) {
-    showMsg('Please enter the full 6-digit code.');
+  
+  if (!response.credential) {
+    showMsg('Google sign-in failed. No credential received.');
     return;
   }
 
-  setLoading('btn-verify', 'btn-verify-spinner', true);
-
   try {
-    const res = await fetch('/api/auth/verify-otp', {
+    const res = await fetch('/api/auth/google', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: currentEmail, code }),
+      body: JSON.stringify({ credential: response.credential }),
     });
 
     const data = await res.json();
 
     if (!res.ok) {
-      showMsg(data.error || 'Invalid code.');
-      otpInputs.forEach(b => { b.value = ''; b.classList.remove('filled'); });
-      otpInputs[0].focus();
+      showMsg(data.error || 'Failed to sign in.');
       return;
     }
 
-    clearInterval(timerInterval);
     showMsg('Signed in! Redirecting...', 'success');
     setTimeout(() => { window.location.href = '/'; }, 600);
 
-  } catch {
+  } catch (err) {
     showMsg('Network error. Please try again.');
-  } finally {
-    setLoading('btn-verify', 'btn-verify-spinner', false);
   }
-});
+};
 
-// ── Resend ────────────────────────────────────────────────────────────────────
-
-document.getElementById('btn-resend').addEventListener('click', async () => {
-  clearMsg();
-  otpInputs.forEach(b => { b.value = ''; b.classList.remove('filled'); });
-
+// Fetch the Google Client ID and initialize the Google Identity Services
+async function initGoogleSignIn() {
   try {
-    const res = await fetch('/api/auth/request-otp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: currentEmail }),
-    });
-    if (res.ok) {
-      showMsg('New code sent.', 'success');
-      startTimer(300);
-      otpInputs[0].focus();
+    const res = await fetch('/api/auth/client-id');
+    const data = await res.json();
+    
+    if (data.clientId) {
+      if (window.google) {
+        google.accounts.id.initialize({
+          client_id: data.clientId,
+          callback: handleGoogleSignIn
+        });
+        google.accounts.id.renderButton(
+          document.getElementById("google-btn-container"),
+          { theme: "outline", size: "large", text: "continue_with" }
+        );
+      } else {
+        // Retry if script isn't loaded yet
+        setTimeout(initGoogleSignIn, 100);
+      }
     } else {
-      const d = await res.json();
-      showMsg(d.error || 'Failed to resend.');
+      showMsg('Google Client ID is not configured. Add GOOGLE_CLIENT_ID to .env on the server.');
     }
-  } catch {
-    showMsg('Network error.');
+  } catch (err) {
+    showMsg('Failed to load login configuration.');
   }
-});
+}
 
-// ── Back ──────────────────────────────────────────────────────────────────────
-
-document.getElementById('btn-back').addEventListener('click', () => {
-  clearInterval(timerInterval);
-  clearMsg();
-  stepOTP.classList.add('hidden');
-  stepEmail.classList.remove('hidden');
-  inputEmail.focus();
-});
+// Initialize
+initGoogleSignIn();

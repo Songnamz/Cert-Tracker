@@ -45,34 +45,61 @@ function saveResults() {
 /**
  * Run a full check on all domains.
  */
-async function runCheck(domains, settings) {
+async function runCheck(allDomainsMap, allSettingsMap, isPartial = false) {
   if (checkInProgress) {
     return { status: 'already-running' };
   }
 
   checkInProgress = true;
-  console.log(`[Scheduler] Starting check of ${domains.length} domains...`);
 
   try {
-    const thresholds = settings.thresholds || { critical: 7, warning: 30 };
-    const results = await checkMultiple(domains, thresholds, 5);
-    cachedResults = results;
-    lastCheckTime = new Date().toISOString();
-    saveResults();
+    let allResults = [];
+    let totalDomains = 0;
 
-    console.log(`[Scheduler] Check complete. ${results.length} domains checked.`);
+    // Handle legacy flat array
+    if (Array.isArray(allDomainsMap)) {
+      const thresholds = allSettingsMap.thresholds || { critical: 7, warning: 30 };
+      allResults = await checkMultiple(allDomainsMap, thresholds, 5);
+      
+      if (allSettingsMap.email && allSettingsMap.email.enabled) {
+        const alertable = filterAlertable(allResults, allSettingsMap.email);
+        if (alertable.length > 0) await sendAlert(allSettingsMap.email, alertable);
+      }
+    } else {
+      // Multi-tenant logic
+      for (const [email, userDomains] of Object.entries(allDomainsMap)) {
+        if (!Array.isArray(userDomains) || userDomains.length === 0) continue;
+        const userSettings = allSettingsMap[email] || { thresholds: { critical: 7, warning: 30 } };
+        const thresholds = userSettings.thresholds || { critical: 7, warning: 30 };
+        
+        const results = await checkMultiple(userDomains, thresholds, 5);
+        allResults = allResults.concat(results);
+        totalDomains += userDomains.length;
 
-    // Send email alerts if configured
-    if (settings.email && settings.email.enabled) {
-      const alertable = filterAlertable(results, settings.email);
-      if (alertable.length > 0) {
-        console.log(`[Scheduler] Sending email alert for ${alertable.length} domains...`);
-        const emailResult = await sendAlert(settings.email, alertable);
-        console.log(`[Scheduler] Email: ${emailResult.sent ? 'sent' : emailResult.reason}`);
+        // Send email alerts for this user if configured
+        if (userSettings.email && userSettings.email.enabled) {
+          const alertable = filterAlertable(results, userSettings.email);
+          if (alertable.length > 0) {
+            await sendAlert(userSettings.email, alertable);
+          }
+        }
       }
     }
 
-    return { status: 'completed', count: results.length };
+    if (isPartial) {
+      for (const r of allResults) {
+        const idx = cachedResults.findIndex(c => c.id === r.id);
+        if (idx >= 0) cachedResults[idx] = r;
+        else cachedResults.push(r);
+      }
+    } else {
+      cachedResults = allResults;
+    }
+
+    lastCheckTime = new Date().toISOString();
+    saveResults();
+
+    return { status: 'completed', count: allResults.length };
   } catch (err) {
     console.error('[Scheduler] Check failed:', err.message);
     return { status: 'error', error: err.message };

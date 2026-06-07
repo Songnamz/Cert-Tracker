@@ -8,6 +8,9 @@ let settings = {};
 let refreshInterval = null;
 let collapsedGroups = {}; // Track which groups are collapsed
 let activeGroup = 'all';  // Track which sidebar menu item is selected
+let isAdmin = false;
+let userList = [];
+let currentUserEmail = '';
 
 // ===== INIT =====
 
@@ -21,6 +24,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     const data = await res.json();
     const emailEl = document.getElementById('user-email');
     if (emailEl) emailEl.textContent = data.email || '';
+    currentUserEmail = data.email || '';
+    isAdmin = data.isAdmin || false;
+
+    if (isAdmin) {
+      document.getElementById('btn-manage-users').style.display = 'inline-block';
+      loadUsers();
+    } else {
+      document.getElementById('btn-manage-users').style.display = 'none';
+    }
   } catch {
     window.location.href = '/login';
     return;
@@ -655,7 +667,12 @@ function populateSettingsForm(s) {
   const passHint = document.getElementById('smtp-pass-env-hint');
   if (s.email?.smtp?.passFromEnv) {
     passHint.style.display = '';
+    passHint.innerHTML = 'Managed by <code>.env</code> file — leave blank to keep using it.';
     document.getElementById('smtp-pass').placeholder = 'Leave blank to keep .env password';
+  } else if (s.email?.smtp?.hasSavedPass) {
+    passHint.style.display = '';
+    passHint.innerHTML = 'Password saved securely — leave blank to keep using it.';
+    document.getElementById('smtp-pass').placeholder = '•••••••• (Saved)';
   } else {
     passHint.style.display = 'none';
     document.getElementById('smtp-pass').placeholder = '••••••••';
@@ -665,42 +682,33 @@ function populateSettingsForm(s) {
   document.getElementById('alert-on-expired').checked = s.email?.alertOnExpired !== false;
   document.getElementById('alert-on-critical').checked = s.email?.alertOnCritical !== false;
   document.getElementById('alert-on-warning').checked = s.email?.alertOnWarning || false;
-  renderAllowedEmails(s.allowedEmails || []);
   toggleEmailFields();
 }
 
-let allowedEmails = [];
-
-function renderAllowedEmails(list) {
-  allowedEmails = [...list];
-  const container = document.getElementById('allowed-emails-list');
-  if (allowedEmails.length === 0) {
-    container.innerHTML = '<p style="font-size:0.75rem;color:var(--text-dim);margin-bottom:8px;">No emails added yet.</p>';
-    return;
-  }
-  container.innerHTML = allowedEmails.map((em, i) => `
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:7px 12px;background:var(--bg-glass);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);margin-bottom:6px;">
-      <span style="font-size:0.82rem;color:var(--text-secondary);">${escapeHtml(em)}</span>
-      <button type="button" onclick="removeAllowedEmail(${i})" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:14px;padding:2px 6px;" title="Remove">✕</button>
-    </div>
-  `).join('');
-}
-
-function removeAllowedEmail(index) {
-  allowedEmails.splice(index, 1);
-  renderAllowedEmails(allowedEmails);
-}
 
 function toggleEmailFields() {
   const enabled = document.getElementById('email-enabled').checked;
   document.getElementById('email-fields').style.display = enabled ? '' : 'none';
+  
+  if (enabled && currentUserEmail) {
+    const hostEl = document.getElementById('smtp-host');
+    const portEl = document.getElementById('smtp-port');
+    const userEl = document.getElementById('smtp-user');
+    const fromEl = document.getElementById('email-from');
+    const toEl = document.getElementById('email-to');
+    
+    if (!hostEl.value) hostEl.value = 'smtp.gmail.com';
+    if (!portEl.value) portEl.value = '587';
+    if (!userEl.value) userEl.value = currentUserEmail;
+    if (!fromEl.value) fromEl.value = currentUserEmail;
+    if (!toEl.value) toEl.value = currentUserEmail;
+  }
 }
 
 async function saveSettings(e) {
   e.preventDefault();
 
   const updated = {
-    allowedEmails,
     thresholds: {
       critical: parseInt(document.getElementById('threshold-critical').value) || 7,
       warning: parseInt(document.getElementById('threshold-warning').value) || 30,
@@ -778,6 +786,36 @@ function closeModal(id) {
   document.body.style.overflow = '';
 }
 
+function customConfirm(title, message, confirmText = 'Delete') {
+  return new Promise((resolve) => {
+    document.getElementById('confirm-title').textContent = title;
+    document.getElementById('confirm-message').textContent = message;
+    const okBtn = document.getElementById('confirm-btn-ok');
+    okBtn.textContent = confirmText;
+    
+    openModal('confirm-modal');
+    
+    const cancelBtn = document.getElementById('confirm-btn-cancel');
+    
+    // Cleanup function
+    const cleanup = () => {
+      closeModal('confirm-modal');
+      okBtn.replaceWith(okBtn.cloneNode(true));
+      cancelBtn.replaceWith(cancelBtn.cloneNode(true));
+    };
+    
+    document.getElementById('confirm-btn-ok').addEventListener('click', () => {
+      cleanup();
+      resolve(true);
+    });
+    
+    document.getElementById('confirm-btn-cancel').addEventListener('click', () => {
+      cleanup();
+      resolve(false);
+    });
+  });
+}
+
 // ===== NOTIFICATIONS =====
 
 function requestNotificationPermission() {
@@ -850,6 +888,18 @@ function setupEventListeners() {
   document.getElementById('email-enabled').addEventListener('change', toggleEmailFields);
   document.getElementById('btn-test-email').addEventListener('click', sendTestEmail);
 
+  // Manage Users
+  const btnManageUsers = document.getElementById('btn-manage-users');
+  if (btnManageUsers) {
+    btnManageUsers.addEventListener('click', () => {
+      loadUsers().then(() => openModal('users-modal'));
+    });
+  }
+  const usersModalClose = document.getElementById('users-modal-close');
+  if (usersModalClose) {
+    usersModalClose.addEventListener('click', () => closeModal('users-modal'));
+  }
+
   // Detail modal
   document.getElementById('detail-modal-close').addEventListener('click', () => closeModal('detail-modal'));
 
@@ -859,21 +909,7 @@ function setupEventListeners() {
     window.location.href = '/login';
   });
 
-  // Add allowed email
-  document.getElementById('btn-add-allowed-email').addEventListener('click', () => {
-    const input = document.getElementById('new-allowed-email');
-    const val = input.value.trim().toLowerCase();
-    if (!val || !val.includes('@')) return;
-    if (!allowedEmails.includes(val)) {
-      allowedEmails.push(val);
-      renderAllowedEmails(allowedEmails);
-    }
-    input.value = '';
-  });
 
-  document.getElementById('new-allowed-email').addEventListener('keydown', e => {
-    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('btn-add-allowed-email').click(); }
-  });
 
   // Close modals on overlay click
   document.querySelectorAll('.modal-overlay').forEach(overlay => {
@@ -904,6 +940,85 @@ function setupEventListeners() {
       renderDomainGroups(domainData);
     });
   });
+  
+
+}
+
+// ===== USER MANAGEMENT =====
+
+async function loadUsers() {
+  if (!isAdmin) return;
+  try {
+    const res = await fetch(`${API}/api/users`);
+    userList = await res.json();
+    renderUsers();
+  } catch (err) {}
+}
+
+function renderUsers() {
+  const container = document.getElementById('users-list-container');
+  if (!container) return;
+  if (userList.length === 0) {
+    container.innerHTML = '<p style="font-size:0.75rem;color:var(--text-dim);margin-bottom:8px;">No users found.</p>';
+    return;
+  }
+  container.innerHTML = userList.map(u => {
+    const isMaster = u.email === 'jeng.ss.it@gmail.com';
+    return `
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg-glass);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);margin-bottom:8px; flex-wrap: wrap; gap: 8px;">
+      <div style="display:flex; flex-direction:column; flex: 1; min-width: 150px;">
+        <span style="font-size:0.85rem;color:var(--text-secondary); word-break: break-all;">${escapeHtml(u.email)}</span>
+        <span style="font-size:0.7rem;color:var(--text-dim); margin-top: 2px;">Last login: ${u.lastLogin ? formatDateTime(u.lastLogin) : 'Unknown'}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <select class="form-input" style="width:85px; padding:4px 6px; font-size:0.75rem; height:auto; background:var(--bg-secondary); color:var(--text-primary); cursor:pointer;" onchange="changeUserRole('${escapeHtml(u.email)}', this.value)" ${isMaster ? 'disabled' : ''}>
+          <option value="user" ${u.role !== 'admin' ? 'selected' : ''}>User</option>
+          <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option>
+        </select>
+        <button type="button" onclick="deleteUser('${escapeHtml(u.email)}')" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:16px;padding:4px 8px; transition: color 0.2s;" onmouseover="this.style.color='var(--status-critical)'" onmouseout="this.style.color='var(--text-dim)'" title="Remove" ${isMaster ? 'disabled' : ''}>✕</button>
+      </div>
+    </div>
+  `}).join('');
+}
+
+async function changeUserRole(email, newRole) {
+  try {
+    const res = await fetch(`${API}/api/users`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, role: newRole })
+    });
+    if (res.ok) {
+      loadUsers();
+      showToast('User role updated', 'success');
+    } else {
+      const err = await res.json();
+      showToast(err.error || 'Failed to update role', 'error');
+    }
+  } catch (err) {}
+}
+
+async function deleteUser(email) {
+  const confirmed = await customConfirm(
+    'Delete User',
+    `Are you sure you want to permanently delete ${email}? All their domains and settings will be wiped.`,
+    'Delete'
+  );
+  
+  if (!confirmed) return;
+  
+  try {
+    const res = await fetch(`${API}/api/users/${encodeURIComponent(email)}`, { method: 'DELETE' });
+    if (res.ok) {
+      loadUsers();
+      showToast(`User ${email} deleted successfully`, 'success');
+    } else {
+      const err = await res.json();
+      showToast(err.error || 'Failed to delete user', 'error');
+    }
+  } catch (err) {
+    showToast('Network error while deleting user', 'error');
+  }
 }
 
 // ===== AUTO REFRESH =====
