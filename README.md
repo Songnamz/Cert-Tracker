@@ -15,7 +15,7 @@ A self-hosted SSL certificate expiry dashboard. Monitor all your domains and int
 - **Sidebar navigation** — domains grouped by base domain, navigate between groups without scrolling
 - **Status indicators** — Healthy / Warning / Critical / Expired / Error with color-coded badges
 - **Origin/internal host support** — bypass public DNS to check certs on servers behind a CDN, load balancer, or reverse proxy (e.g. check the backend server cert separately from nginx)
-- **Email OTP login** — enter your email, receive a 6-digit code, no passwords required
+- **Google OAuth login** — secure and frictionless sign-in using your Google Account, no passwords required
 - **Per-User Settings** — Users can optionally enter their own SMTP credentials to receive their own alerts, or use global credentials.
 - **Email alerts** — automated notifications when certs are expiring (configurable thresholds)
 - **Scheduled checks** — automatic background checks for all active users (default every 6 hours)
@@ -49,11 +49,16 @@ npm install
 
 ### 1. Create the `.env` file
 
-You can optionally configure global SMTP credentials. If configured, the app will use these credentials to send OTP login codes and system alerts. Users can also configure their own private SMTP credentials in their personal dashboard settings.
+You can optionally configure global SMTP credentials to send system alerts. Users can also configure their own private SMTP credentials in their personal dashboard settings.
+
+You **must** configure your `GOOGLE_CLIENT_ID` for Google OAuth login to work.
 
 ```env
 # Server
 PORT=3000
+
+# Google OAuth (Required for login)
+GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
 
 # Global SMTP credentials (Optional)
 SMTP_HOST=smtp.gmail.com
