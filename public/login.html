@@ -5,23 +5,42 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Cert Tracker — Sign In</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔒</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="login.css">
   <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
-  <div class="login-bg"></div>
+  <!-- Animated Background -->
+  <div class="bg-mesh">
+    <div class="orb orb-1"></div>
+    <div class="orb orb-2"></div>
+    <div class="orb orb-3"></div>
+  </div>
 
   <div class="login-wrap">
-    <div class="login-card">
+    <div class="login-card fade-in">
 
       <!-- Logo -->
-      <div class="login-logo">🔒</div>
+      <div class="logo-container">
+        <div class="login-logo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+        </div>
+      </div>
+      
       <h1 class="login-title">Cert Tracker</h1>
-      <p class="login-subtitle">SSL Certificate Expiry Dashboard</p>
+      <p class="login-subtitle">Secure SSL Certificate Dashboard</p>
 
       <div class="login-step" id="step-google">
-        <p class="step-label" style="text-align: center;">Sign in with your Google account to continue</p>
-        <div id="google-btn-container" style="display: flex; justify-content: center; margin-top: 20px; margin-bottom: 20px; min-height: 40px;"></div>
+        <div class="divider">
+          <span>Authenticate</span>
+        </div>
+        <p class="step-label">Access your secure workspace using your Google account.</p>
+        <div id="google-btn-container" class="google-container"></div>
       </div>
 
       <!-- Error / success message -->

@@ -58,7 +58,7 @@ async function initGoogleSignIn() {
         });
         google.accounts.id.renderButton(
           document.getElementById("google-btn-container"),
-          { theme: "outline", size: "large", text: "continue_with" }
+          { theme: "filled_black", size: "large", text: "continue_with", shape: "rectangular" }
         );
       } else {
         // Retry if script isn't loaded yet
